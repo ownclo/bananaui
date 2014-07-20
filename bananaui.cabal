@@ -17,7 +17,7 @@ cabal-version:       >=1.10
 
 executable bananaui
   main-is:             Bananaui.hs
-  -- other-modules:       
+  other-modules:       ReactiveHelpers
   -- other-extensions:    
   build-depends:       base >=4.6 && <4.7,
                        reactive-banana >= 0.8.0.0

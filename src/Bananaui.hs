@@ -5,22 +5,7 @@ import Reactive.Banana.Frameworks
 import System.IO
 import Control.Monad (when)
 
--- | Returns sliding window of an event stream.
--- Returns a stream where each event corresponds to
--- the original one, but the value is a list of
--- current value and previous ones, in reverse order.
--- Size of a sliding window is passed in as a parameter.
-slide :: Int -> Event t a -> Event t [a]
-slide n e = accumE [] $ take n `o` (:) <$> e
-    where (f `o` g) x y = f (g x y)  -- big dot, you know
-
--- | Return a event that fires up only if the history
--- of events matched the pattern provided. The fired
--- value is the pattern in reverse order.
-eventSeq :: Eq a => [a] -> Event t a -> Event t [a]
-eventSeq pattern e = filterE (== p) $ slide n e
-    where n = length pattern
-          p = reverse pattern
+import ReactiveHelpers
 
 -- Event Sources - allows you to register event handlers
 -- Your GUI framework should provide something like this for you
@@ -59,18 +44,46 @@ data Clicked = Building
              | Friend
              deriving (Eq, Show)
 
+data UIState = EmptyState
+             | FriendClicked
+             deriving (Eq, Show)
+
+data UIAction = ConstructBuilding
+              | GotoBuilding
+              | GotoFriend
+              | AttackEnemy
+              deriving (Eq, Show)
+
+type UITransition = (UIState, Maybe UIAction)
+
+uiTMatrix :: Clicked -> UIState -> UITransition
+uiTMatrix Friend   EmptyState = (FriendClicked, Nothing)
+uiTMatrix Building EmptyState = (EmptyState, Just ConstructBuilding)
+uiTMatrix Enemy    EmptyState = (EmptyState, Nothing)
+
+uiTMatrix Friend   FriendClicked = (EmptyState, Just GotoFriend)
+uiTMatrix Building FriendClicked = (EmptyState, Just GotoBuilding)
+uiTMatrix Enemy    FriendClicked = (EmptyState, Just AttackEnemy)
+
+uiTFunction :: Clicked -> UITransition -> UITransition
+uiTFunction c = uiTMatrix c . fst
+
+
 -- Set up the program logic in terms of events and behaviors.
 setupNetwork :: forall t. Frameworks t => 
     EventSource Clicked -> Moment t ()
 setupNetwork clicked = do
         eclicked <- fromAddHandler $ addHandler clicked
 
-        -- TODO: Friend -> Building will fire both gotoBuilding and
-        -- construct. Aww, this is bad.
-        let egotoBuilding = eventSeq [Friend, Building] eclicked
-            eattackEnemy  = eventSeq [Friend, Enemy]    eclicked
-            egotoFriend   = eventSeq [Friend, Friend]   eclicked
-            econstruct    = eventSeq [Building]         eclicked
+        let uiTransitions = fsmEvents (EmptyState, Nothing) uiTFunction eclicked
+            egotoBuilding = filterAction GotoBuilding
+            eattackEnemy  = filterAction AttackEnemy
+            egotoFriend   = filterAction GotoFriend
+            econstruct    = filterAction ConstructBuilding
+
+            filterAction a = filterE (isAction a) uiTransitions
+            isAction a (_, Just a') | a == a' = True
+            isAction _ _ = False
 
         reactimate $ putStrLn "Going to building"       <$ egotoBuilding
         reactimate $ putStrLn "Going to friend"         <$ egotoFriend
